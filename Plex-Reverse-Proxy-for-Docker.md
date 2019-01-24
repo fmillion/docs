@@ -15,7 +15,9 @@ There are several reasons:
 
 ## Getting Started
 
-If you already have a Plex instance running in Docker, you'll need to destroy it and create a new one. If you followed the instructions for setting up Plex on Docker, you performed a volume mount for multiple locations:
+If you already have a Plex instance running in Docker, you'll need to destroy it and create a new one. This is because we need to change some settings about the container's operation.
+
+If you followed the instructions for setting up Plex on Docker, you performed a volume mount for multiple locations:
 
 * **/transcode**: Transcoding temp folder
 * **/config**: Configuration
@@ -23,44 +25,7 @@ If you already have a Plex instance running in Docker, you'll need to destroy it
 
 When you re-create your Docker container, you'll need to use these same mounts. If you do this right, your new Plex container will automatically pick up on your old settings and Plex will ultimately come back up just as if you hadn't changed anything.
 
-### If you forgot to create volume mounts for /transcode or /config:
-
-It's not impossible to recover from this, but it is a bit tricky. 
-
-**Method 1**
-
-This method assumes you at least created a volume mount for your media. If this is the case, you have one easy way out of your container - through this mount. You can use **docker exec** to connect to your container and obtain a shell, and copy the files to your media folder temporarily:
-
-    host:# docker exec -it <name of your Plex container> /bin/sh
-    container:# mkdir /data/server-data
-    container:# cp -av /config /transcode /data/server-data
-    container:# exit
-
-After you do this, **stop your Docker container right away.** This prevents anything else from happening before you migrate to a new container:
-
-    host:# docker stop <name of your Plex container>
-
-**Method 2**
-
-If you didn't use *any* mounts at all, you are in a bit of a tougher spot. But you still have an option:
-
-1. Get a shell within the container.
-
-        host:# docker exec -it <name of your Plex container> /bin/sh
-
-1. Make an archive of the contents of the `/config` and `/transcode` folders:
-
-        container:# tar cf /backup.tar /config /transcode
-
-1. Exit the container
-
-        container:# exit
-
-1. Copy the archive out of the container
-
-        host:# docker cp <name of your Plex container>:/backup.tar .
-
-You now have a copy of your configuration. You can extract this tarfile somewhere on your system and next time bind-mount it into the correct locations.
+If you forgot to use bind mounts as required, see the section later in this document entitled "If you forgot to create volume mounts".
 
 ## Creating a new Plex Docker container
 
@@ -216,3 +181,43 @@ Now we're going to create and configure an `nginx` container which will run as o
 
 1. Finally, try to access your Plex server at the address of your proxy, for example `https://my-proxy.local.lan:32469/web/index.html` If you see the Plex web interface, you're all set!
 
+### If you forgot to create volume mounts for /transcode or /config:
+
+It's not impossible to recover from this, but it is a bit tricky. 
+
+**Method 1**
+
+This method assumes you at least created a volume mount for your media. If this is the case, you have one easy way out of your container - through this mount. You can use **docker exec** to connect to your container and obtain a shell, and copy the files to your media folder temporarily:
+
+    host:# docker exec -it <name of your Plex container> /bin/sh
+    container:# mkdir /data/server-data
+    container:# cp -av /config /transcode /data/server-data
+    container:# exit
+
+After you do this, **stop your Docker container right away.** This prevents anything else from happening before you migrate to a new container:
+
+    host:# docker stop <name of your Plex container>
+
+**Method 2**
+
+If you didn't use *any* mounts at all, you are in a bit of a tougher spot. But you still have an option:
+
+1. Get a shell within the container.
+
+        host:# docker exec -it <name of your Plex container> /bin/sh
+
+1. Make an archive of the contents of the `/config` and `/transcode` folders:
+
+        container:# tar cf /backup.tar /config /transcode
+
+1. Exit the container
+
+        container:# exit
+
+1. Copy the archive out of the container
+
+        host:# docker cp <name of your Plex container>:/backup.tar .
+
+You now have a copy of your configuration. You can extract this tarfile somewhere on your system and next time bind-mount it into the correct locations.
+
+Please note that all of your media files will still be stuck inside the container. Getting these out may be even more challenging especially if you have lots of them. 
