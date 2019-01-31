@@ -10,7 +10,7 @@ There are several reasons:
 * **Manage SSL on your own.** By installing your own SSL certificate into the reverse proxy, you are in control of SSL connectivity to your Plex server. Since mobile and TV apps do not currently support manual connections to a secured Plex server, you can also set up your proxy to allow non-secured access from your LAN for such devices, again avoiding the need to sign in to Plex.
 * **Logging.** Your reverse proxy will generate logs of all accesses to Plex. While these logs won't be as detailed as the Plex server logs, they will be in a standard format that can be parsed by tools such as [The Webalizer](http://www.webalizer.org) or other dashboard systems. 
 * **Remotely access your Plex server privately and securely using a VPN.** If you have a VPN which allows you into your home LAN, your reverse proxy will function over that VPN just as any other service on your LAN would. This means you can securely access your Plex content from anywhere as long as you are on your VPN. 
-    * Note that you will need to manually configre your clients to limit bandwidth usage if you need to limit it due to available upstream bandwidth; clients will interpret your connection as "local" and will try to stream at full bandwidth over the VPN link.
+    * Note that you will need to manually configre your clients to limit bandwidth usage if you need to limit it due to available upstream bandwidth; clients will interpret your connection as "local" and will try to stream at full bandwidth over the VPN link. So if you use this method, chang ethe "Local Network streaming" bandwidth quality options in your client. The Remote server settings will have no effect.
 * **You can secure Plex behind the Docker network, leaving the proxy as the only gateway into Plex from your LAN.** No need to forward ports or use `--net host`. You can even implement IP blacklisting or any other rule nginx is capable of following to restrict access to Plex.
 
 ## Getting Started
@@ -49,7 +49,7 @@ For this example, I will assume your folders are as follows (please change the c
             -v /media:/data \
             --net plexnet \
             --name plex
-            linuxserver.io/plex
+            plexinc/pms-docker
 
 Plex should now be up and running, however you can't access it yet. This is by design - we didn't forward any ports at all using `-p` on the Plex container, as we don't need to - that will be handled by the proxy server.
 
@@ -180,6 +180,50 @@ Now we're going to create and configure an `nginx` container which will run as o
         docker start plex-proxy
 
 1. Finally, try to access your Plex server at the address of your proxy, for example `https://my-proxy.local.lan:32469/web/index.html` If you see the Plex web interface, you're all set!
+
+## Making your Plex server discoverable
+
+Even with Plex running on Docker, you can make it discoverable on your local network. This will make Plex apps (Android, iOS, TVs) autodetect the server and save you from having to manually enter server details. Also, at least on Amazon Fire TV, there is no way to enter server details at all, so the only way to make it work there is to use this method.
+
+There isn't a good way to reverse-proxy a UDP connection, so this procedure will require us to forward a few ports to the outside for the main Plex Docker container. However, note that we still don't need to expose the bulk HTTP service at all, and autodiscovery will work just fine with a reverse proxy.
+
+To do this, you will forward the Plex autodiscovery ports (32410 UDP, 32412-32414 UDP) and also provide the "public" address of the server to your container. By "public address" I mean the address your Docker host is accessible at on your LAN, **not** your public IP address. 
+
+When creating your Docker container for Plex, add the autodiscovery ports and the environment variable:
+
+    host:# docker run -d \
+        -v /data/plex/config:/config \
+        -v /data/plex/transcode:/transcode \
+        -v /media:/data \
+        -p 32410:32410/udp \
+        -p 32412:32412/udp \
+        -p 32413:32413/udp \
+        -p 32414:32414/udp \
+        -e ADVERTISE_IP=http://<docker_host_ip>:32400 \
+        --net plexnet \
+        --name plex
+        plexinc/pms-docker
+
+With this configuration your Plex server should be automatically picked up and usable from any device on your local LAN. 
+
+### If it isn't working
+
+If auto-discovery is not working, make sure that the `GdmEnabled` setting in your Preferences.xml file is set to `1`. 
+
+The Preferences.xml file is located in the path `config/Library/Application Support/Plex Media Server/Preferences.xml`. The Preferences file consists of a single XML tag with all of the preferences as attributes.  For example:
+
+    <?xml version="1.0" encoding="utf-8"?>
+    <Preferences 
+        GdmEnabled="1" 
+        AcceptedEULA="1" 
+        ...
+    />
+
+If `GdmEnabled` is not an attribute in the `Preferences` tag, simply add it. 
+
+After this, restart your Plex container and autodiscovery should work.
+
+## Troubleshooting and extra advise
 
 ### If you forgot to create volume mounts for /transcode or /config:
 
