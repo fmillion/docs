@@ -7,10 +7,11 @@ This guide is intended to explain the necessary configuration to set up an Nginx
 There are several reasons:
 
 * **Use your Plex media server completely independent of a Plex account.** When you run Plex in Docker, it can be challenging to connect to it from your own network, largely due to how Plex detects whether your connection is "local" or "remote". The Plex web UI will redirect you to Plex to sign in if the Plex server does not consider you to be a local connection. A reverse proxy lets you forward the correct headers to cause Plex to always interpret your connection as local.
-* **Manage SSL on your own.** By installing your own SSL certificate into the reverse proxy, you are in control of SSL connectivity to your Plex server. Since mobile and TV apps do not currently support manual connections to a secured Plex server, you can also set up your proxy to allow non-secured access from your LAN for such devices, again avoiding the need to sign in to Plex.
-* **Logging.** Your reverse proxy will generate logs of all accesses to Plex. While these logs won't be as detailed as the Plex server logs, they will be in a standard format that can be parsed by tools such as [The Webalizer](http://www.webalizer.org) or other dashboard systems. 
+* **Manage SSL on your own.** By installing your own SSL certificate into the reverse proxy, you are in control of SSL connectivity to your Plex server. Since mobile and TV apps do not currently support manual connections to a secured Plex server, you can also set up your proxy to allow non-secured access from your LAN for such devices, again avoiding the need to allow unsecured connections and depend on signing in to Plex's cloud orchestrator.
+* **Logging.** Your reverse proxy will generate logs of all accesses to Plex. While these logs won't be as detailed as the Plex server logs, they will be in a standard format that can be parsed by tools such as [The Webalizer](http://www.webalizer.org) or other dashboard systems. The logs will generally not contain the names of specific media files, so the logs generated are really only useful for traffic analysis.
 * **Remotely access your Plex server privately and securely using a VPN.** If you have a VPN which allows you into your home LAN, your reverse proxy will function over that VPN just as any other service on your LAN would. This means you can securely access your Plex content from anywhere as long as you are on your VPN. 
     * Note that you will need to manually configre your clients to limit bandwidth usage if you need to limit it due to available upstream bandwidth; clients will interpret your connection as "local" and will try to stream at full bandwidth over the VPN link. So if you use this method, chang ethe "Local Network streaming" bandwidth quality options in your client. The Remote server settings will have no effect.
+    * If you are trying to use a client that does not allow for manual server entry over a VPN, autodiscovery will probably not work, unless you are doing layer 2 VPN and are configured so your VPN devices appear to be directly on the LAN. There are some possible workaround for this, and I may explore them at a later point in time, but for now dealing with that problem is outside the scope of this document.
 * **You can secure Plex behind the Docker network, leaving the proxy as the only gateway into Plex from your LAN.** No need to forward ports or use `--net host`. You can even implement IP blacklisting or any other rule nginx is capable of following to restrict access to Plex.
 
 ## Getting Started
@@ -29,17 +30,17 @@ If you forgot to use bind mounts as required, see the section later in this docu
 
 ## Creating a new Plex Docker container
 
-For this example, I will assume your folders are as follows (please change the commands to point to your actual folders):
+For this example, I will assume the folders on your Docker *host* are as follows (please change the commands to point to your actual folders):
 
-* Configuration folder: /data/plex/config
-* Transcode folder: /data/plex/transcode
-* Media folder: /media
+* Configuration folder: `/data/plex/config`
+* Transcode folder: `/data/plex/transcode`
+* Media folder: `/media`
 
-1. Create a new virtual network to run your Plex container on.
+1. Create a new virtual network to run your Plex container on. 
 
         host:# docker network create plexnet
 
-    (You can name the network anything you like, but it must be the same in all commands.)
+    (You can name the network anything you like, but it must be the same in all commands. You may also use an existing network if you have one as long as you use the same network for the proxy.)
 
 1. Start a Plex docker container in this network, making the correct bind mounts:
 
@@ -57,25 +58,9 @@ Plex should now be up and running, however you can't access it yet. This is by d
 
 Now we're going to create and configure an `nginx` container which will run as our Plex proxy server.
 
-1. Create an nginx container which will serve as our reverse proxy (but don't start it yet!)
+1. Create a directory on your host to hold the nginx configuration. For example:
 
-        host:# docker create -d \
-            -p 32400:32400 \
-            -p 32469:32469 \
-            -v /data/plex/proxylogs:/var/log/nginx \
-            --net plexnet \
-            --name plex-proxy \
-            nginx:alpine
-
-    A few things to note here:
-
-    * The ports 32400 and 32469 are the default Plex ports for insecure and secure connections, respectively. The nginx configuration we will provide also provides the proxy server on these ports. If you want to expose your Plex server on different ports, you can do it in the `-p` flags by changing the first number. For example, if you wanted to run your Plex server on standard HTTP ports, you could use `-p 80:32400 -p 443:32469`.
-
-    * The `-v` option puts nginx's logs somewhere on your host platform. This is optional, but it is handy if you want to be able to access and parse the proxy logs for analysis or dashboard interfaces. 
-
-    * The `--net` network name must match the one you created in the `docker network create` command above.
-
-1. Create a directory on your server to use as a working directory for the configuration.
+        mkdir /data/plex/proxyconf
 
 1. Now, create a file called `nginx.conf` and add the following contents:
 
@@ -92,7 +77,7 @@ Now we're going to create and configure an `nginx` container which will run as o
             ssl_session_timeout 10m;
 
             upstream plex_backend {
-                server plex:32400;
+                server plex:32400; # replace 'plex' with the name you gave to your plex container if necessary!
                 keepalive 32;
             }
 
@@ -157,27 +142,36 @@ Now we're going to create and configure an `nginx` container which will run as o
 
     There's a lot going on here, but this configuration as is should work fine for you. 
 
-    Many of the more advanced options are documented. Here are a few extra valuable pointers:
+    Many of the more advanced options are documented inline. Here are a few extra valuable pointers:
 
+    * The result of this configuration is that the reverse proxy will tell Plex that **all** connections are originating from `localhost`. Therefore, Plex will always allow unrestrictred, unauthenticated access to your entire Plex server via this proxy. _Therefore, you should **not** open the reverse proxy's ports directly to the Internet!_ 
     * **Make sure you change the `server_name` parameter to match the address you expect to access your server at.** You can either enter a hostname or an IP address - basically, enter here exactly what you expect to put into a browser to access the server. Also make sure the terminating `;` remains.
-    * If you really don't want SSL security at all, you can exclude everything starting with `ssl_`. You must then also ensure not to include `listen 32469 ssl http2`, as nginx will fail to start if asked to listen on SSL without the necessary parameters.
-    * I advise you to leave the ports in this config as they are, and use the docker `-p` switch to change the ports exposed to the network. 
     * Notice how in the `upstream` block the server address is listed as just `plex`. This name must match the name given in the `--name` option for the *Plex container* you started first. Docker provides its own internal DNS resolution that allows containers on one network to communicate with each other by using their container names as if they were hostnames. 
+    * If you really don't want SSL security at all, you can exclude everything starting with `ssl_`. You must then also ensure not to include `listen 32469 ssl http2`, as nginx will fail to start if asked to listen on SSL without the necessary parameters.
+    * I advise you to leave the ports in this config as they are, and use the docker `-p` switch to change the ports exposed to the network.
 
 1. If you are intending to use SSL, generate am appropriate SSL certificate and key and name them `server.crt` and `server.key`. Put them in the same directory as your `nginx.conf` file.
 
-1. If you are using SSL you also need to generate DH parameters using this command: `openssl dhparam -out dhparam.pem 2048`
+1. If you are using SSL you also need to generate DH parameters using this command: `openssl dhparam -out dhparam.pem 2048` If necessary move the `dhparam.pem` file into your configuration directory.
 
-1. You're now ready to move these files into your Docker container:
+1. Create and start an nginx container using the configuration we made above:
 
-    * `docker cp nginx.conf plex-proxy:/etc/nginx` 
-    * `docker cp server.crt plex-proxy:/etc/nginx` (if using SSL)
-    * `docker cp server.key plex-proxy:/etc/nginx` (if using SSL)
-    * `docker cp dhparam.pem plex-proxy:/etc/nginx` (if using SSL)
+        host:# docker create -d \
+            -p 32400:32400 \
+            -p 32469:32469 \
+            -v /data/plex/proxylogs:/var/log/nginx \
+            -v /data/plex/proxyconf:/etc/nginx \
+            --net plexnet \
+            --name plex-proxy \
+            nginx:alpine
 
-1. Now, go ahead and start your proxy!
+    A few things to note here:
 
-        docker start plex-proxy
+    * The ports 32400 and 32469 are the default Plex ports for insecure and secure connections, respectively. The nginx configuration we will provide also provides the proxy server on these ports. If you want to expose your Plex server on different ports, you can do it in the `-p` flags by changing the first number. For example, if you wanted to run your Plex server on standard HTTP ports, you could use `-p 80:32400 -p 443:32469`.
+
+    * The volume connected to `/var/log/nginx` puts nginx's logs somewhere on your host platform. This is optional, but it is handy if you want to be able to access and parse the proxy logs for analysis or dashboard interfaces. 
+
+    * The `--net` network name must match the one you created in the `docker network create` command above.
 
 1. Finally, try to access your Plex server at the address of your proxy, for example `https://my-proxy.local.lan:32469/web/index.html` If you see the Plex web interface, you're all set!
 
