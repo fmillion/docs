@@ -34,7 +34,7 @@ For this example, I will assume the folders on your Docker *host* are as follows
 
 * Configuration folder: `/data/plex/config`
 * Transcode folder: `/data/plex/transcode`
-* Media folder: `/media`
+* Media folder: `/data/plex/media`
 
 1. Create a new virtual network to run your Plex container on. 
 
@@ -47,7 +47,7 @@ For this example, I will assume the folders on your Docker *host* are as follows
         host:# docker run -d \
             -v /data/plex/config:/config \
             -v /data/plex/transcode:/transcode \
-            -v /media:/data \
+            -v /data/plex/media:/data \
             --net plexnet \
             --name plex
             plexinc/pms-docker
@@ -175,6 +175,29 @@ Now we're going to create and configure an `nginx` container which will run as o
 
 1. Finally, try to access your Plex server at the address of your proxy, for example `https://my-proxy.local.lan:32469/web/index.html` If you see the Plex web interface, you're all set!
 
+## Performing initial setup
+
+If you are just starting up a brand new Plex server, you may find that the local Plex web app still tries to force you to sign in. This is because the Plex web app asks your browser to connect to the Plex web service and, if it is successful, it directs you to the Plex web site to finish setup (which requires you to sign in).
+
+The simplest way to avoid this problem is to configure your system to reject connections to the Plex website. To do this, you can edit your system HOSTS file to include an entry for `plex.tv` and `app.plex.tv`. The following line added to your HOSTS file will solve the problem:
+
+    127.0.0.1 plex.tv app.plex.tv
+
+Note that you must do this on the machine **from which you are accessing the Plex web UI**, *not* on the Docker host or within the Docker container. 
+
+You do not need to keep this override after you have completed Plex setup. However, if you are adamant on not using any of Plex's cloud services, it won't hurt to leave this entry in your hosts file.
+
+### Editing your Hosts file
+
+This topic has been discussed many places, so I'll simply include a reference to where you can find the HOSTS file on typical systems:
+
+* **Windows**: `%WINDIR%\system32\drivers\etc\hosts`
+* **Mac OS X and Linux**: `/etc/hosts`
+
+### Alternatives
+
+Any method of blocking access to `plex.tv` and `app.plex.tv` to your browser is sufficient to bypass this online check. There are various plugins that can block requests from arbitrary domains. Also, many ad-blocker plugins allow you to blacklist domains. You could also add `*.plex.tv` to a central DNS server such as Pi-Hole to block access across your entire network. Advanced DNS mods are beyond the scope of this article, but suffice it to say that as long as your browser is unable to reach the Plex website at `plex.tv` and `app.plex.tv`, you should have no trouble getting the Plex wizard to load on your system.
+ 
 ## Making your Plex server discoverable
 
 Even with Plex running on Docker, you can make it discoverable on your local network. This will make Plex apps (Android, iOS, TVs) autodetect the server and save you from having to manually enter server details. Also, at least on Amazon Fire TV, there is no way to enter server details at all, so the only way to make it work there is to use this method.
